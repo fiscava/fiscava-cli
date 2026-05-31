@@ -147,14 +147,14 @@ const commands: Record<string, Command> = {
 };
 
 export function usage(): string {
-  return `Usage: fiscava [--api-url URL] [--token TOKEN|--token-file FILE] [--format json|table|ndjson] <command>
+  return `Usage: fiscava [--token TOKEN|--token-file FILE] [--format json|table|ndjson] <command>
 
 Commands:
   auth status
   auth login --email EMAIL [--code 123456]
-  auth token create --name NAME --scopes scope[,scope] [--expires 30d] [--session-token JWT]
-  auth token list --session-token JWT
-  auth token revoke ID --session-token JWT
+  auth token create --name NAME --scopes scope[,scope] [--expires 30d]   (uses your logged-in session)
+  auth token list
+  auth token revoke ID
   profile get
   usage get
   expenses list [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--limit N] [--search TEXT] [--min-amount N] [--max-amount N]
@@ -212,7 +212,7 @@ export async function runCommand(context: CommandContext): Promise<unknown> {
   if (key === 'auth token create') {
     const name = requireFlag(context.flags, 'name');
     const scopes = requireFlag(context.flags, 'scopes');
-    const sessionToken = requireSessionToken(context.flags);
+    const sessionToken = requireSessionToken(context);
     const client = new FiscavaApiClient({
       apiUrl: context.config.apiUrl,
       token: sessionToken,
@@ -229,7 +229,7 @@ export async function runCommand(context: CommandContext): Promise<unknown> {
   }
 
   if (key === 'auth token list') {
-    const sessionToken = requireSessionToken(context.flags);
+    const sessionToken = requireSessionToken(context);
     const client = new FiscavaApiClient({
       apiUrl: context.config.apiUrl,
       token: sessionToken,
@@ -245,7 +245,7 @@ export async function runCommand(context: CommandContext): Promise<unknown> {
       throw new Error('auth token revoke requires a token id');
     }
 
-    const sessionToken = requireSessionToken(context.flags);
+    const sessionToken = requireSessionToken(context);
     const client = new FiscavaApiClient({
       apiUrl: context.config.apiUrl,
       token: sessionToken,
@@ -944,12 +944,25 @@ function requireFlag(
   return value;
 }
 
-function requireSessionToken(flags: Record<string, string | boolean>): string {
-  return (
-    stringFlag(flags, 'session-token') ??
+/**
+ * Resolve the session token used to manage CLI tokens. Prefers an explicit
+ * --session-token / FISCAVA_SESSION_TOKEN (e.g. a browser JWT), but falls back
+ * to the token `fiscava auth login` already stored — so the normal public flow
+ * is `auth login` then `auth token create`, with no browser JWT needed.
+ */
+export function requireSessionToken(context: CommandContext): string {
+  const token =
+    stringFlag(context.flags, 'session-token') ??
     process.env['FISCAVA_SESSION_TOKEN'] ??
-    requireFlag(flags, 'token')
-  );
+    context.config.token;
+
+  if (!token) {
+    throw new Error(
+      'Not authenticated. Run `fiscava auth login` first, or pass --session-token.'
+    );
+  }
+
+  return token;
 }
 
 type LoginSuccess = {

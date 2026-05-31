@@ -1,10 +1,10 @@
 import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FiscavaApiClient, FiscavaApiError } from '../apiClient';
-import { runCommand } from '../commands';
-import { CliConfig } from '../config';
+import { requireSessionToken, runCommand } from '../commands';
+import { CliConfig, PRODUCTION_API_URL, resolveConfig } from '../config';
 import { resolveCliFailure } from '../errorHandling';
 import { selectFields } from '../output';
 
@@ -1094,5 +1094,67 @@ describe('CLI error handling', () => {
         },
       },
     });
+  });
+});
+
+describe('resolveConfig — locked prod API URL (#2182)', () => {
+  it('always uses the hardcoded production origin, ignoring --api-url and FISCAVA_API_URL', () => {
+    const previous = process.env.FISCAVA_API_URL;
+    process.env.FISCAVA_API_URL = 'https://evil.example.com';
+
+    try {
+      const config = resolveConfig({
+        'api-url': 'https://attacker.example.com',
+        // point at a non-existent token file so we never read a real dev token
+        'token-file': join(tmpdir(), 'fiscava-nonexistent-token-for-test'),
+      });
+
+      expect(config.apiUrl).toBe(PRODUCTION_API_URL);
+      expect(PRODUCTION_API_URL).toBe('https://api.fiscava.app');
+    } finally {
+      if (previous === undefined) {
+        delete process.env.FISCAVA_API_URL;
+      } else {
+        process.env.FISCAVA_API_URL = previous;
+      }
+    }
+  });
+});
+
+describe('requireSessionToken (#2182)', () => {
+  beforeEach(() => {
+    delete process.env.FISCAVA_SESSION_TOKEN;
+  });
+
+  function context(opts: {
+    flags?: Record<string, string | boolean>;
+    token?: string;
+  }) {
+    return {
+      client: createMockClient() as unknown as FiscavaApiClient,
+      config: { ...createConfig(opts.token), token: opts.token },
+      args: [],
+      flags: opts.flags ?? {},
+    } as Parameters<typeof requireSessionToken>[0];
+  }
+
+  it('prefers an explicit --session-token', () => {
+    expect(
+      requireSessionToken(
+        context({ flags: { 'session-token': 'jwt-flag' }, token: 'stored' })
+      )
+    ).toBe('jwt-flag');
+  });
+
+  it('falls back to the stored login token (no browser JWT needed)', () => {
+    expect(requireSessionToken(context({ token: 'stored-login-token' }))).toBe(
+      'stored-login-token'
+    );
+  });
+
+  it('throws a clear error when not authenticated', () => {
+    expect(() => requireSessionToken(context({ token: undefined }))).toThrow(
+      /Run `fiscava auth login` first/
+    );
   });
 });

@@ -9,6 +9,17 @@ import {
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 
+/**
+ * Production API origin, hardcoded. This is a public package: end users don't
+ * know (and shouldn't choose) the API, and pointing a token-bearing CLI at an
+ * arbitrary host is a credential-exfiltration risk. There is intentionally NO
+ * --api-url / FISCAVA_API_URL override.
+ *
+ * Note: this is the ORIGIN only — command paths already include `/api`
+ * (e.g. `/api/auth/login`), so appending `/api` here would double it.
+ */
+export const PRODUCTION_API_URL = 'https://api.fiscava.app';
+
 export type CliConfig = {
   apiUrl: string;
   token?: string;
@@ -63,10 +74,7 @@ export function resolveConfig(
   }
 
   return {
-    apiUrl:
-      typeof flags['api-url'] === 'string'
-        ? flags['api-url']
-        : (process.env['FISCAVA_API_URL'] ?? 'http://localhost:4000'),
+    apiUrl: PRODUCTION_API_URL,
     token:
       typeof flags['token'] === 'string'
         ? flags['token']

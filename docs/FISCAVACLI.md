@@ -6,31 +6,33 @@ localStorage, or MongoDB directly.
 
 > **New to wiring this up?** Start with the linear walkthrough in
 > [FISCAVACLI_OPENCLAW_GETTING_STARTED.md](./FISCAVACLI_OPENCLAW_GETTING_STARTED.md). This document
-> is the reference manual; the getting-started guide is the tutorial that threads install → deploy →
+> is the reference manual; the getting-started guide is the tutorial that threads install → login →
 > token → verify → OpenClaw config in order.
 
-## Install/build from the monorepo
+## Install
 
 ```bash
-npm install
-npm run build --workspace=@fiscava/cli
-node apps/cli/dist/index.js --help
+npm install -g @fiscava/cli
+fiscava --help
 ```
 
-The package exposes a `fiscava` binary when installed as an npm workspace package.
+(Monorepo development: `npm run build --workspace=@fiscava/cli` then `node apps/cli/dist/index.js`.)
+
+The CLI targets the Fiscava production API automatically — there is no API URL to configure (and no
+`--api-url` flag).
 
 ## Authentication model
 
 CLI access supports an interactive human login and scoped personal access tokens (PATs).
 
-For local use, sign in with email, password, and your 2FA code or backup code:
+Sign in with email, password, and your 2FA code or backup code:
 
 ```bash
-fiscava --api-url https://api.staging.fiscava.app auth login --email you@example.com
+fiscava auth login --email you@example.com
 ```
 
-The CLI prompts for the password and 2FA code, then stores only the returned token in the configured
-token file. It does not store the account password or 2FA seed.
+The CLI prompts for the password and 2FA code, then stores only the returned token in the token file
+(`~/.config/fiscava/token`, mode `0600`). It does not store the account password or 2FA seed.
 
 PATs remain the preferred model for agent runtimes and longer-lived automation:
 
@@ -38,21 +40,21 @@ PATs remain the preferred model for agent runtimes and longer-lived automation:
 - raw tokens are returned once during creation;
 - tokens have scopes and expirations;
 - tokens can be listed and revoked through `/api/auth/cli-tokens`;
-- browser/JWT auth is required to create, list, or revoke CLI tokens.
+- creating, listing, or revoking tokens requires an authenticated session — `fiscava auth login`
+  provides it, so **no browser JWT is needed**.
 
-Create a token using an existing authenticated session JWT:
+Create a scoped token (reuses your logged-in session):
 
 ```bash
-export FISCAVA_API_URL=http://localhost:4000
-export FISCAVA_SESSION_TOKEN='<browser/session JWT copied deliberately by the user>'
-
 fiscava auth token create \
   --name OpenClaw \
   --scopes profile:read,usage:read,expenses:read,recurring:read,accounts:read,debts:read,networth:read,portfolio:read,export:read \
   --expires 30d
 ```
 
-Copy the returned `token` value immediately. It is not shown again.
+Copy the returned `token` value immediately — it is not shown again. (You may instead pass an
+explicit `--session-token <jwt>` or `FISCAVA_SESSION_TOKEN` if you'd rather use a browser session
+JWT, but it is optional.)
 
 For OpenClaw and other agent runtimes, prefer token files over inline secrets:
 
@@ -65,7 +67,7 @@ chmod 600 ~/.config/fiscava/token
 Then run commands with:
 
 ```bash
-fiscava --api-url http://localhost:4000 profile get
+fiscava profile get
 fiscava expenses list --from 2026-01-01 --to 2026-01-31 --limit 50
 fiscava networth summary --fields totalNetWorth,assets,liabilities
 ```
@@ -129,8 +131,8 @@ Use `--format ndjson` for array payloads that should stream cleanly into line-or
 
 ```bash
 fiscava auth status
-fiscava auth token list --session-token '<jwt>'
-fiscava auth token revoke <id> --session-token '<jwt>'
+fiscava auth token list
+fiscava auth token revoke <id>
 fiscava profile get
 fiscava usage get
 fiscava expenses list --from YYYY-MM-DD --to YYYY-MM-DD --limit 50
@@ -181,8 +183,7 @@ For agent runtimes that only need expense creation, prefer a narrow token such a
 fiscava auth token create \
   --name ExpenseCreateBot \
   --scopes profile:read,expenses:create \
-  --expires 30d \
-  --session-token '<jwt>'
+  --expires 30d
 ```
 
 Create success output is wrapped as:
@@ -258,39 +259,17 @@ the similar-recurring guard unless `--allow-similar` is supplied.
 
 ## OpenClaw usage
 
-Deploy the runtime artifact into OpenClaw-owned storage:
+After `npm install -g @fiscava/cli`, the `fiscava` binary is on your `PATH` (use the absolute path
+from `which fiscava` in OpenClaw config). OpenClaw jobs/harnesses need only **one** env var — the
+token file. The API URL is built in.
 
 ```bash
-npm run deploy:openclaw
-```
-
-The default runtime destination is:
-
-```text
-~/.openclaw/plugins/fiscava/fiscava-cli
-```
-
-The deployed command is:
-
-```text
-~/.openclaw/plugins/fiscava/fiscava-cli/bin/fiscava
-```
-
-Override the destination with `OPENCLAW_FISCAVA_CLI_DIR` or `--dest`:
-
-```bash
-npm run deploy:openclaw -- --dest "$HOME/.openclaw/plugins/fiscava/fiscava-cli"
-```
-
-Configure OpenClaw jobs/harnesses to pass:
-
-```bash
-FISCAVA_API_URL=https://your-fiscava-api.example.com
-FISCAVA_TOKEN_FILE=$HOME/.config/fiscava/token
+FISCAVA_TOKEN_FILE=$HOME/.config/fiscava/agent-token
 ```
 
 Do not paste PATs into prompts. Store the token in a `0600` file and let the CLI read it. Keep
 scopes narrow for the agent's task; for example, use `profile:read,expenses:read` for expense
 inspection rather than broad export access.
 
-See `apps/cli/README.md` for OpenClaw deployment and verification steps.
+See [FISCAVACLI_OPENCLAW_GETTING_STARTED.md](./FISCAVACLI_OPENCLAW_GETTING_STARTED.md) for the MCP
+server, slash-command, and `before_dispatch` hook integration patterns.
