@@ -4,7 +4,7 @@
 your money data.**
 
 `@fiscava/cli` (command: `fiscava`) is the official command-line interface for
-[Fiscava](https://fiscava.com). Track expenses, income, recurring bills, and net worth from your
+[Fiscava](https://fiscava.app). Track expenses, income, recurring bills, and net worth from your
 shell, or wire it into an AI coding agent (Claude Code, OpenClaw, Cursor) so it can read and act on
 your finances through revocable, scoped tokens — never your password.
 
@@ -17,7 +17,7 @@ touch your browser storage, local files, or any database directly.
 npm install -g @fiscava/cli
 ```
 
-Requires Node.js 20+ and a [Fiscava](https://fiscava.com) **PRO** subscription (CLI access is a PRO
+Requires Node.js 20+ and a [Fiscava](https://fiscava.app) **PRO** subscription (CLI access is a PRO
 feature).
 
 ## Quick start
