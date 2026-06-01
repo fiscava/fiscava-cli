@@ -99,7 +99,7 @@ fiscava networth summary --fields totalNetWorth,assets,liabilities
   "error": "CLI access requires an active Pro subscription.",
   "details": {
     "reason": "tier_free",
-    "upgradeUrl": "https://fiscava.com/pricing",
+    "upgradeUrl": "https://fiscava.app/pricing",
     "retryable": false,
     "graceEndsAt": "2026-06-15T00:00:00.000Z"
   }

@@ -13,7 +13,7 @@ is no API URL to configure.
 - [ ] **Node.js 20+** (`node --version`).
 - [ ] A **Fiscava PRO account**. CLI access is a PRO feature; the API re-checks your subscription on
       every request, so a token only works while PRO is active. Sign up / upgrade at
-      <https://fiscava.com>.
+      <https://fiscava.app>.
 - [ ] For the OpenClaw section: **OpenClaw installed** and its plugin/config dir available.
 
 You do **not** need a Fiscava API URL or a browser session token — both are handled for you (the API
