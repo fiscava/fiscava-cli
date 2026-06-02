@@ -35,6 +35,23 @@ fiscava networth summary
 fiscava expenses list --format ndjson --fields date,amount,merchant
 ```
 
+## What You Can Do
+
+`@fiscava/cli` covers both read access and guarded write operations across the main Fiscava finance
+surfaces:
+
+- expenses: list, create, update, delete
+- income: transaction list, create, update, delete, plus summary views
+- recurring: list, create, update, delete, complete, skip, pause, resume
+- transfers: list, create, update, delete
+- accounts and liabilities: accounts list, debts list, savings-goals list
+- wealth views: net worth summary, portfolio summary
+- profile and usage: profile get, usage get
+- exports: full JSON export for agent-friendly backups and analysis
+- auth administration: token create, list, revoke
+
+The npm page is intentionally short, but the CLI itself is not read-only.
+
 ## Use it with AI agents
 
 The CLI is built for agent runtimes. Create a **scoped, revocable** personal access token, drop it
@@ -64,6 +81,26 @@ The CLI never stores your password. Authenticate one of two ways:
 Tokens live in a `0600` file you control. Subscription state is re-checked on every request, so a
 token grants access only while your PRO subscription is active.
 
+## Safe Writes For Automation
+
+Write commands are built for agent and script safety rather than raw shell convenience:
+
+- `--yes` is required for non-interactive writes
+- `--dry-run` lets automation validate payloads before mutating data
+- `--idempotency-key` protects retries from accidental duplicate creates
+- duplicate and similar-item guards stay on by default unless explicitly bypassed
+- payloads can come from files, stdin, or inline JSON
+
+Example guarded writes:
+
+```bash
+fiscava expenses create --yes --payload @expense.json --dry-run
+fiscava recurring create --yes --payload @recurring.json
+fiscava income transactions create --yes --payload @income.json
+fiscava transfers create --yes --payload @transfer.json
+fiscava recurring complete rec_123 --yes --payload-json '{"paidAt":"2026-06-01","amount":42.50}'
+```
+
 ## Output contract
 
 - JSON on stdout (default); diagnostics and structured errors on stderr.
@@ -75,13 +112,24 @@ token grants access only while your PRO subscription is active.
 
 ```bash
 fiscava auth status
+fiscava auth token list
 fiscava profile get
+fiscava usage get
 fiscava expenses list --from 2026-01-01 --to 2026-01-31 --limit 50
+fiscava expenses create --yes --payload @expense.json
 fiscava income transactions list --status received
+fiscava income transactions create --yes --payload @income.json
 fiscava recurring list
+fiscava recurring pause rec_123 --yes
+fiscava recurring complete rec_123 --yes --payload @complete.json
+fiscava transfers list
+fiscava transfers create --yes --payload @transfer.json
 fiscava accounts list
+fiscava debts list
+fiscava savings-goals list
 fiscava networth summary
 fiscava portfolio summary
+fiscava export all --format json
 ```
 
 Full command reference, scope list, and write-command guards:

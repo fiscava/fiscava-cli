@@ -54,6 +54,12 @@ const commands: Record<string, Command> = {
   'expenses delete': {
     path: '/api/expenses',
   },
+  'import expenses plan': {
+    path: '/api/export/import/expenses/reconcile/plan',
+  },
+  'import expenses commit': {
+    path: '/api/export/import/expenses/reconcile/commit',
+  },
   'recurring list': {
     path: '/api/recurring',
     queryFlags: ['limit', 'page', 'fields'],
@@ -161,6 +167,8 @@ Commands:
   expenses create --yes (--payload @file.json|--payload -|--payload-json '{"..."}') [--idempotency-key KEY] [--allow-duplicate] [--dry-run]
   expenses update ID --yes (--payload @file.json|--payload -|--payload-json '{"..."}') [--idempotency-key KEY] [--dry-run]
   expenses delete ID --yes [--idempotency-key KEY] [--dry-run]
+  import expenses plan --file statement.csv --mapping @mapping.json --date-format YYYY-MM-DD [--category-policy require|default_uncategorised] [--max-rows 500]
+  import expenses commit --plan-id PLAN_ID --commit-token TOKEN --decisions @decisions.json [--idempotency-key KEY]
   recurring list
   recurring create --yes (--payload @file.json|--payload -|--payload-json '{"..."}') [--idempotency-key KEY] [--allow-similar] [--dry-run]
   recurring update ID --yes (--payload @file.json|--payload -|--payload-json '{"..."}') [--idempotency-key KEY] [--dry-run]
@@ -270,6 +278,14 @@ export async function runCommand(context: CommandContext): Promise<unknown> {
       idempotencyKeyPrefix: 'fiscava-expense-delete',
       basePath: '/api/expenses',
     });
+  }
+
+  if (key === 'import expenses plan') {
+    return planExpenseImport(context);
+  }
+
+  if (key === 'import expenses commit') {
+    return commitExpenseImport(context);
   }
 
   if (key === 'income transactions create') {
@@ -480,6 +496,72 @@ async function createExpense(context: CommandContext): Promise<unknown> {
     dryRun: false,
     result,
   };
+}
+
+async function planExpenseImport(context: CommandContext): Promise<unknown> {
+  if (!context.config.token) {
+    throw new Error(
+      'Authentication required. Set FISCAVA_TOKEN or --token-file.'
+    );
+  }
+
+  const filePath = requireFlag(context.flags, 'file');
+  const csvContent = await readTextFile(filePath, '--file');
+  const mapping = await readJsonValueFromFlags({
+    flags: context.flags,
+    fileFlag: 'mapping',
+    jsonFlag: 'mapping-json',
+    label: 'mapping',
+  });
+  const maxRows = optionalNumberFlag(context.flags, 'max-rows');
+  const detailLimit = optionalNumberFlag(context.flags, 'detail-limit');
+
+  return context.client.post('/api/export/import/expenses/reconcile/plan', {
+    source: {
+      type: 'csv_text',
+      fileName: filePath,
+      content: csvContent,
+    },
+    mapping,
+    dateFormat: requireFlag(context.flags, 'date-format'),
+    hasHeaders: true,
+    expensesAreNegative: context.flags['expenses-are-negative'] === true,
+    categoryPolicy: stringFlag(context.flags, 'category-policy') ?? 'require',
+    ...(maxRows !== undefined ? { maxRows } : {}),
+    ...(detailLimit !== undefined ? { detailLimit } : {}),
+  });
+}
+
+async function commitExpenseImport(context: CommandContext): Promise<unknown> {
+  if (!context.config.token) {
+    throw new Error(
+      'Authentication required. Set FISCAVA_TOKEN or --token-file.'
+    );
+  }
+
+  const commitToken = stringFlag(context.flags, 'commit-token')?.trim();
+
+  if (!commitToken) {
+    throw new FiscavaApiError({
+      code: 'COMMIT_TOKEN_REQUIRED',
+      message: '--commit-token is required for import expenses commit',
+      status: 400,
+    });
+  }
+
+  const decisions = await readJsonValueFromFlags({
+    flags: context.flags,
+    fileFlag: 'decisions',
+    jsonFlag: 'decisions-json',
+    label: 'decisions',
+  });
+
+  return context.client.post('/api/export/import/expenses/reconcile/commit', {
+    planId: requireFlag(context.flags, 'plan-id'),
+    commitToken,
+    idempotencyKey: stringFlag(context.flags, 'idempotency-key'),
+    decisions,
+  });
 }
 
 type JsonWriteOptions = {
@@ -859,6 +941,54 @@ async function readJsonPayload(
   }
 }
 
+async function readJsonValueFromFlags(params: {
+  flags: Record<string, string | boolean>;
+  fileFlag: string;
+  jsonFlag: string;
+  label: string;
+}): Promise<unknown> {
+  const fileArg = stringFlag(params.flags, params.fileFlag);
+  const jsonArg = stringFlag(params.flags, params.jsonFlag);
+
+  if (Boolean(fileArg) === Boolean(jsonArg)) {
+    throw new Error(
+      `Provide exactly one ${params.label} source: --${params.fileFlag} @file.json|--${params.fileFlag} -|--${params.jsonFlag} '{...}'.`
+    );
+  }
+
+  if (jsonArg) {
+    return parseJsonValue(jsonArg, `--${params.jsonFlag}`);
+  }
+
+  if (!fileArg) {
+    throw new Error(`--${params.fileFlag} is required.`);
+  }
+
+  if (fileArg === '-') {
+    const text = await readFromStdin();
+
+    return parseJsonValue(text, `--${params.fileFlag} -`);
+  }
+
+  if (!fileArg.startsWith('@') || fileArg.length <= 1) {
+    throw new Error(`--${params.fileFlag} must be @<file.json> or -.`);
+  }
+
+  const fileText = await readTextFile(fileArg.slice(1), `--${params.fileFlag}`);
+
+  return parseJsonValue(fileText, `--${params.fileFlag} ${fileArg}`);
+}
+
+async function readTextFile(filePath: string, label: string): Promise<string> {
+  try {
+    return await readFile(filePath, 'utf8');
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Unable to read file';
+    throw new Error(`Failed to read ${label} "${filePath}": ${message}`);
+  }
+}
+
 async function readFromStdin(): Promise<string> {
   if (process.stdin.isTTY) {
     throw new Error('--payload - requires JSON input from stdin.');
@@ -879,7 +1009,7 @@ async function readFromStdin(): Promise<string> {
 
 function parseJsonObject(raw: string, source: string): JsonObject {
   try {
-    const parsed = JSON.parse(raw) as unknown;
+    const parsed = parseJsonValue(raw, source);
 
     if (!isJsonObject(parsed)) {
       throw new Error(`${source} must be a JSON object.`);
@@ -891,6 +1021,16 @@ function parseJsonObject(raw: string, source: string): JsonObject {
       throw error;
     }
 
+    const message =
+      error instanceof Error ? error.message : 'Invalid JSON payload';
+    throw new Error(`${source} must contain valid JSON: ${message}`);
+  }
+}
+
+function parseJsonValue(raw: string, source: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Invalid JSON payload';
     throw new Error(`${source} must contain valid JSON: ${message}`);
@@ -929,6 +1069,25 @@ function resolveIdempotencyKey(
   }
 
   return `${prefix}-${randomUUID()}`;
+}
+
+function optionalNumberFlag(
+  flags: Record<string, string | boolean>,
+  name: string
+): number | undefined {
+  const raw = stringFlag(flags, name);
+
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  const value = Number(raw);
+
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`--${name} must be a positive number`);
+  }
+
+  return value;
 }
 
 function requireFlag(

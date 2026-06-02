@@ -284,6 +284,125 @@ describe('expenses create command', () => {
   });
 });
 
+describe('import expenses commands', () => {
+  it('plans an expense import by sending CSV content and mapping to the API', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'fiscavacli-import-'));
+    const csvPath = join(tempDir, 'statement.csv');
+    const mappingPath = join(tempDir, 'mapping.json');
+    const client = createMockClient();
+
+    client.post.mockResolvedValueOnce({ planId: 'plan-1' });
+    await writeFile(
+      csvPath,
+      'Date,Amount,Description,Payment\n2026-06-01,12.5,Lunch,Cash',
+      'utf8'
+    );
+    await writeFile(
+      mappingPath,
+      JSON.stringify({
+        date: 0,
+        amount: 1,
+        description: 2,
+        paymentMethodName: 3,
+      }),
+      'utf8'
+    );
+
+    const { result } = await runCliCommand({
+      client,
+      args: ['import', 'expenses', 'plan'],
+      flags: {
+        file: csvPath,
+        mapping: `@${mappingPath}`,
+        'date-format': 'YYYY-MM-DD',
+        'category-policy': 'require',
+        'max-rows': '250',
+      },
+    });
+
+    expect(result).toEqual({ planId: 'plan-1' });
+    expect(client.post).toHaveBeenCalledWith(
+      '/api/export/import/expenses/reconcile/plan',
+      expect.objectContaining({
+        source: expect.objectContaining({
+          type: 'csv_text',
+          fileName: csvPath,
+          content: expect.stringContaining('Lunch'),
+        }),
+        mapping: {
+          date: 0,
+          amount: 1,
+          description: 2,
+          paymentMethodName: 3,
+        },
+        dateFormat: 'YYYY-MM-DD',
+        hasHeaders: true,
+        categoryPolicy: 'require',
+        maxRows: 250,
+      })
+    );
+
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('requires a commit token before calling the import commit API', async () => {
+    const client = createMockClient();
+
+    await expect(
+      runCliCommand({
+        client,
+        args: ['import', 'expenses', 'commit'],
+        flags: {
+          'plan-id': 'plan-1',
+          'decisions-json': '[]',
+        },
+      })
+    ).rejects.toMatchObject({
+      payload: {
+        code: 'COMMIT_TOKEN_REQUIRED',
+        status: 400,
+      },
+    });
+    expect(client.post).not.toHaveBeenCalled();
+  });
+
+  it('commits a planned expense import with token and decisions', async () => {
+    const client = createMockClient();
+
+    client.post.mockResolvedValueOnce({ commitId: 'commit-1' });
+
+    const { result } = await runCliCommand({
+      client,
+      args: ['import', 'expenses', 'commit'],
+      flags: {
+        'plan-id': 'plan-1',
+        'commit-token': 'token-1',
+        'decisions-json':
+          '[{"rowId":"row-1","rowNumber":1,"rowHash":"abc","action":"create_new"}]',
+        'idempotency-key': 'idem-1',
+      },
+    });
+
+    expect(result).toEqual({ commitId: 'commit-1' });
+    expect(client.post).toHaveBeenCalledWith(
+      '/api/export/import/expenses/reconcile/commit',
+      {
+        planId: 'plan-1',
+        commitToken: 'token-1',
+        idempotencyKey: 'idem-1',
+        decisions: [
+          {
+            rowId: 'row-1',
+            rowNumber: 1,
+            rowHash: 'abc',
+            action: 'create_new',
+          },
+        ],
+      }
+    );
+  });
+});
+
 describe('income transactions create command', () => {
   it('posts payload with an idempotency key', async () => {
     const client = createMockClient();

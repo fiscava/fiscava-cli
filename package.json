@@ -1,6 +1,6 @@
 {
   "name": "@fiscava/cli",
-  "version": "7.21.1",
+  "version": "7.24.0",
   "description": "Fiscava CLI — manage personal finances (expenses, income, recurring bills, net worth) from the terminal, and let AI agents (Claude Code, OpenClaw, Cursor) act on your data via scoped tokens.",
   "keywords": [
     "fiscava",
